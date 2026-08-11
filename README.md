@@ -31,15 +31,12 @@ Sinh `data/offline_index/{manifest.json,records.jsonl,videos.jsonl,features.npy}
 ### API tìm kiếm thô
 
 ```bash
-.venv/bin/python -m backend.offline_indexing.cli serve
+.venv/bin/python -m backend.offline_indexing.cli serve --index data/offline_index/l21
 curl http://127.0.0.1:8000/health
-curl 'http://127.0.0.1:8000/frames?video_id=L01_V001&limit=20'
-curl -X POST http://127.0.0.1:8000/search \
-  -H 'Content-Type: application/json' \
-  -d '{"vector":[0.1,0.2],"top_k":20}'
+curl 'http://127.0.0.1:8000/frames?video_id=L21_V001&limit=20'
 ```
 
-Vector truy vấn phải cùng model/số chiều với `features.npy`. API giới hạn Top-100 theo luật thi và chỉ là baseline để kiểm tra tích hợp; Thành viên 5 có thể nạp thẳng bốn file đầu ra vào Qdrant/Milvus và Elasticsearch.
+`POST /search` nhận vector 512 chiều từ cùng model CLIP với `features.npy`; vector `[0.1, 0.2]` chỉ là minh họa và không hợp lệ với index L21. API giới hạn Top-100 theo luật thi và chỉ là baseline để kiểm tra tích hợp; Thành viên 5 có thể nạp thẳng bốn file đầu ra vào Qdrant/Milvus và Elasticsearch.
 
 ### Kiểm tra
 
