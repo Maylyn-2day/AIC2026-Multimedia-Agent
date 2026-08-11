@@ -1,0 +1,94 @@
+{
+  "_note": "Mock cho POST /v1/db/query — tính RRF nội bộ (dense Qdrant + sparse Elasticsearch) và train SOM offline (cluster_id/som_coords), trả kèm breakdown đầy đủ để Agent truy vết mà không cần gọi thêm request nào.",
+
+  "example_request": {
+    "raw_query": "Người phụ nữ mặc áo đỏ tại HTV9",
+    "filters": {
+      "objects": ["person", "laptop"],
+      "ocr": "HTV9",
+      "timestamp_range": ["10:00", "12:00"]
+    },
+    "fusion_params": {
+      "k": 60,
+      "weight_dense": 1.0,
+      "weight_sparse": 1.0,
+      "_note": "Tuỳ chọn — nếu bỏ trống, dùng mặc định k=60, weight=1.0 cho cả 2"
+    },
+    "top_k": 100
+  },
+
+  "example_response": {
+    "status": "success",
+    "data": {
+      "total_candidates": 100,
+      "candidates": [
+        {
+          "rank": 1,
+          "video_id": "L01_V001",
+          "frame_id": 505,
+          "dense_score": 0.812,
+          "dense_rank": 1,
+          "sparse_score": 14.2,
+          "sparse_rank": 3,
+          "rrf_score": 0.0317,
+          "rrf_k": 60,
+          "objects": ["person", "laptop", "chair"],
+          "ocr_text": "HTV9 TRỰC TIẾP",
+          "asr_text": null,
+          "timestamp": "2026-03-14T10:22:11Z",
+          "keyframe_path": "Keyframes/L01_V001/0505.jpg",
+          "cluster_id": "cl_0007",
+          "som_coords": [3, 5]
+        },
+        {
+          "rank": 2,
+          "video_id": "L01_V001",
+          "frame_id": 512,
+          "dense_score": 0.789,
+          "dense_rank": 2,
+          "sparse_score": 15.6,
+          "sparse_rank": 1,
+          "rrf_score": 0.0310,
+          "rrf_k": 60,
+          "objects": ["person", "laptop"],
+          "ocr_text": "HTV9",
+          "asr_text": null,
+          "timestamp": "2026-03-14T10:22:14Z",
+          "keyframe_path": "Keyframes/L01_V001/0512.jpg",
+          "cluster_id": "cl_0007",
+          "som_coords": [3, 6]
+        },
+        {
+          "rank": 3,
+          "video_id": "L02_V014",
+          "frame_id": 1189,
+          "dense_score": 0.755,
+          "dense_rank": 3,
+          "sparse_score": 8.9,
+          "sparse_rank": 12,
+          "rrf_score": 0.0271,
+          "rrf_k": 60,
+          "objects": ["person"],
+          "ocr_text": null,
+          "asr_text": "kính chào quý vị và các bạn",
+          "timestamp": "2026-02-02T08:15:40Z",
+          "keyframe_path": "Keyframes/L02_V014/1189.jpg",
+          "cluster_id": "cl_0014",
+          "som_coords": [4, 2]
+        }
+      ],
+      "_comment_1": "cluster_id/som_coords: train SOM 1 lần offline trên toàn bộ vector CLIP, lưu toạ độ cố định vào Qdrant payload, chỉ LOOKUP (không train lại) mỗi khi trả response. Candidate 1&2 cùng cluster (cl_0007) vì cùng video, sát nhau về thời gian và ngữ nghĩa gần giống nhau."
+    },
+    "message": "OK",
+    "execution_time": "0.34s",
+    "agent_reasoning": null
+  },
+
+  "example_error_response": {
+    "status": "error",
+    "data": {},
+    "message": "Invalid filter schema: 'timestamp_range' must be ISO8601",
+    "execution_time": "0.01s",
+    "agent_reasoning": null
+  }
+}
