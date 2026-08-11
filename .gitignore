@@ -156,7 +156,7 @@ venv/
 ENV/
 env.bak/
 venv.bak/
-
+.venv/
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -203,6 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
+#Pycharm
+.idea
+
 # Ruff stuff:
 .ruff_cache/
 
@@ -216,3 +219,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+#codex support
+.codex
+
+# Generated local retrieval index
+data/offline_index/
+data/state_store.db/
+data/stream_store/
