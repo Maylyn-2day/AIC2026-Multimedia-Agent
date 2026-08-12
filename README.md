@@ -1,53 +1,145 @@
-# AIC2026 Multimedia Agent
+# AIC 2026 Multimedia Agent
 
-## Offline indexing pipeline
+Kho mã dùng chung cho hệ thống truy vấn video AIC 2026. Phần hiện có tập trung vào pipeline lập chỉ mục offline: chuẩn hóa artefact BTC, tự trích keyframe từ video, chuẩn hóa object detection và chuẩn bị SigLIP2 feature cho hệ thống tìm kiếm.
 
-Pipeline hiện tại **tái sử dụng artefact BTC**, kiểm tra ánh xạ keyframe → frame thật và tạo đầu vào chung cho các thành viên khác. Chưa chạy lại OCR, ASR, scene detection hoặc model embedding khi chưa có dữ liệu thiếu/benchmark yêu cầu.
+## Trạng thái hiện tại
 
-### Dữ liệu vào
+| Hạng mục | Trạng thái |
+|---|---|
+| Chuẩn hóa Keyframes, CLIP ViT-B/32, mapping, Objects và Metadata BTC | Hoàn thành trên L21 |
+| Baseline cosine search/API kiểm tra tích hợp | Hoàn thành |
+| PySceneDetect + normalized L1 dedup + frame mapping | Hoàn thành trên 3 video mẫu |
+| Kiểm chứng ảnh đã lưu đúng frame video | Hoàn thành |
+| Chuẩn hóa Faster R-CNN Objects thành JSONL | Hoàn thành trên 3 video mẫu |
+| SigLIP2 global embedding | Code hoàn thành; chưa sinh dữ liệu vì thiếu weights/GPU |
+| SigLIP2 dense feature | Code hoàn thành; chỉ chạy cho ứng viên rerank |
+| OCR và ASR | Chưa triển khai |
+
+Kết quả đã kiểm tra:
+
+- Index L21: 29 video, 7.800 keyframe, CLIP 512 chiều.
+- Keyframe tự sinh: 341, 291 và 263 frame cho `L21_V001`–`L21_V003`.
+- Objects mẫu: 855 keyframe, 15.598 detection có score từ 0,1.
+- Toàn bộ test hiện có đều đạt.
+
+## Cấu trúc dữ liệu
+
+Dữ liệu lớn nằm ngoài Git. Mỗi máy có thể chọn dataset root riêng nhưng phải giữ cấu trúc bên trong:
 
 ```text
-<dataset>/
-├── video/<video_id>.mp4               # tùy chọn khi nạp artefact BTC
+<dataset-root>/
+├── video/<video_id>.mp4
 ├── keyframes/<video_id>/*.jpg
-├── map-keyframes/<video_id>.csv       # frame_idx + pts_time (hoặc frame_id/timestamp)
-├── clip/<video_id>.npy                # cùng thứ tự với keyframe
-├── objects/<video_id>/*.json          # tùy chọn
-└── media-info/<video_id>.json         # tùy chọn
+├── map-keyframes/<video_id>.csv
+├── clip/<video_id>.npy
+├── objects/<video_id>/*.json
+└── media-info/<video_id>.json
 ```
 
-Tên thư mục thông dụng có dấu cách/gạch nối và chữ hoa/thường cũng được nhận diện; xem `ARTIFACT_DIRECTORY_NAMES` trong `backend/offline_indexing/artifact_indexer.py`.
 
-### Build và bàn giao
+## Cài đặt và kiểm tra
 
 ```bash
-.venv/bin/python -m backend.offline_indexing.cli build /home/depp/AIC/AIC26/batch1 \
+source .venv/bin/activate
+python -m unittest discover -s tests -v
+python -m backend.offline_indexing.cli --help
+```
+
+Các thư viện chính: NumPy, OpenCV, PySceneDetect, PyTorch và `open_clip_torch`.
+
+## 1. Chuẩn hóa artefact BTC
+
+```bash
+python -m backend.offline_indexing.cli build \
+  /dataset-root \
   --video-prefix L21 \
   --output data/offline_index/l21
 ```
 
-Sinh `data/offline_index/{manifest.json,records.jsonl,videos.jsonl,features.npy}`. `feature_row` trong mỗi record trỏ đúng dòng tương ứng trong `features.npy`; `frame_id` là frame video dùng để nộp bài, không phải số thứ tự keyframe.
+Đầu ra bàn giao cho Thành viên 5:
 
-### API tìm kiếm thô
+```text
+data/offline_index/l21/
+├── manifest.json     # số video, frame và chiều vector
+├── records.jsonl     # video_id, frame_id, timestamp và đường dẫn artefact
+├── videos.jsonl      # đường dẫn video và metadata
+└── features.npy      # ma trận feature; record.feature_row trỏ tới từng dòng
+```
+
+`frame_id` là frame thật của video dùng để nộp bài, không phải số thứ tự keyframe.
+
+## 2. API baseline để kiểm tra tích hợp
+
+API này chỉ giúp kiểm tra index; API database/search chính thức thuộc Thành viên 5.
 
 ```bash
-.venv/bin/python -m backend.offline_indexing.cli serve --index data/offline_index/l21
+python -m backend.offline_indexing.cli serve --index data/offline_index/l21
+```
+
+Trong terminal khác:
+
+```bash
 curl http://127.0.0.1:8000/health
 curl 'http://127.0.0.1:8000/frames?video_id=L21_V001&limit=20'
 ```
 
-`POST /search` nhận vector 512 chiều từ cùng model CLIP với `features.npy`; vector `[0.1, 0.2]` chỉ là minh họa và không hợp lệ với index L21. API giới hạn Top-100 theo luật thi và chỉ là baseline để kiểm tra tích hợp; Thành viên 5 có thể nạp thẳng bốn file đầu ra vào Qdrant/Milvus và Elasticsearch.
+`POST /search` cần vector 512 chiều từ cùng model CLIP ViT-B/32 BTC; vector minh họa hai chiều không hợp lệ.
 
-### Kiểm tra
+## 3. Sinh và kiểm chứng keyframe từ video
 
 ```bash
-.venv/bin/python -m unittest tests/test_offline_indexing.py
+python -m backend.offline_indexing.cli preprocess \
+  dataset-root/video \
+  L21_V001 L21_V002 L21_V003 \
+  --output data/processed/l21_sample
 ```
 
-### Công việc offline indexing còn lại
+Pipeline lấy frame giữa mỗi cảnh do PySceneDetect phát hiện, sau đó loại frame gần trùng bằng normalized mean L1. Có thể hiệu chỉnh bằng `--scene-threshold`, `--dedup-threshold` và `--minimum-scene-frames`.
 
-- Chạy build trên bộ dữ liệu BTC thật và xử lý sai khác **thực tế** của schema/path nếu có.
-- Benchmark độ phủ CLIP BTC trước khi quyết định trích OpenCLIP/SigLIP mới.
-- Chỉ chạy PySceneDetect + OpenCV dedup cho video không có keyframe.
-- Chỉ chạy Whisper/PaddleOCR cho video thiếu ASR/OCR; lưu timestamp và provenance của model.
-- Bàn giao `manifest.json`, schema record và kết quả kiểm tra cho Thành viên 5.
+```bash
+python -m backend.offline_indexing.cli validate \
+  dataset-root/video \
+  data/processed/l21_sample \
+  dataset-root/map-keyframes \
+  L21_V001 L21_V002 L21_V003
+```
+
+Đầu ra gồm `keyframes/`, `map-keyframes/`, `preprocessing-report.json` và `validation-report.json`.
+
+## 4. SigLIP2 feature
+
+Backbone duy nhất:
+
+```text
+ViT-gopt-16-SigLIP2-384, pretrained=webli
+├── global embedding: N × 1536, normalized float16
+└── dense feature: N × 1536 × 24 × 24, chỉ dùng khi rerank
+```
+
+Model weights 7.5 GB. Nên chạy bằng GPU; CPU chỉ phù hợp kiểm tra một vài ảnh.
+
+```bash
+python -m backend.offline_indexing.cli features \
+  data/processed/l21_sample/keyframes \
+  L21_V001 L21_V002 L21_V003 \
+  --output data/processed/l21_sample/siglip2 \
+  --device cuda \
+  --batch-size 1 \
+  --weights /path/to/open_clip_model.safetensors
+```
+
+Bỏ `--weights` nếu file pretrained `webli` đã có trong Hugging Face cache. Không thêm `--dense` khi chạy toàn bộ keyframe; chỉ bật cho tập ứng viên nhỏ cần rerank.
+
+Trạng thái hiện tại: tải weights từ Hugging Face bị reset kết nối và máy phát triển không có CUDA, nên chưa có `siglip2/global/*.npy` để bàn giao.
+
+## 5. Chuẩn hóa Objects BTC
+
+```bash
+python -m backend.offline_indexing.cli objects \
+  dataset-root/objects \
+  dataset-root/map-keyframes \
+  L21_V001 L21_V002 L21_V003 \
+  --output data/processed/l21_sample/objects
+```
+
+Mỗi dòng JSONL gồm `video_id`, `keyframe_id`, `frame_id`, `timestamp`, danh sách nhãn và detection `{entity, class_name, class_id, score, box}`. Đây là Objects của keyframe BTC, không phải keyframe tự sinh.

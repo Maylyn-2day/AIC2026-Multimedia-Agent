@@ -203,8 +203,9 @@ cython_debug/
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
 
-#Pycharm
-.idea
+# Local editor/agent state
+.idea/
+.codex/
 
 # Ruff stuff:
 .ruff_cache/
@@ -221,10 +222,14 @@ __marimo__/
 .streamlit/secrets.toml
 
 
-#codex support
-.codex
-
-# Generated local retrieval index
+# Generated data and agentmemory state
 data/offline_index/
+data/processed/
 data/state_store.db/
 data/stream_store/
+
+# Large local datasets, archives, and model weights
+*.zip
+*.safetensors
+*.pt
+*.pth
