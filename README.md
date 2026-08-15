@@ -140,7 +140,7 @@ Mở `notebooks/kaggle_siglip2_features.ipynb`, bật GPU và Internet, rồi s�
 └── manifest.json
 ```
 
-Nếu tiếp tục từ một phiên trước, gắn output cũ làm Input; notebook tự chép `global/*.npy` hợp lệ vào output mới và chỉ chạy các video còn thiếu. File tải về cuối cùng là `/kaggle/working/siglip2-global.zip`.
+Mỗi phiên mặc định xử lý tối đa 100 video. Khi tiếp tục, gắn output cũ làm Input; notebook tự chép `global/*.npy` hợp lệ vào output mới và chỉ chạy các video còn thiếu. Mỗi lần đều tạo `/kaggle/working/siglip2-global.zip` tích lũy.
 
 ## 5. Chuẩn hóa Objects BTC
 
