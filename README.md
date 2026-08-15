@@ -132,7 +132,7 @@ Không thêm `--dense` khi chạy toàn bộ keyframe; chỉ bật cho tập ứ
 
 ### Chạy batch 1 trên Kaggle
 
-Mở `notebooks/kaggle_siglip2_features.ipynb`, bật GPU và Internet, rồi sửa `DATASET_HANDLE` thành `owner/dataset-name`. Notebook dùng KaggleHub tải các version 1–44, tìm đúng 873 thư mục video kể cả cấu trúc lồng `L21_V001/L21_V001/*.jpg`, hợp nhất chúng bằng symlink và ghi mọi feature vào một thư mục:
+Mở `notebooks/kaggle_siglip2_features.ipynb`, bật GPU và Internet, tạo Kaggle Secret `GITHUB_TOKEN` có quyền read-only repository private, rồi sửa `DATASET_HANDLE` thành `owner/dataset-name`. Notebook dùng KaggleHub tải các version 1–44, tìm đúng 873 thư mục video kể cả cấu trúc lồng `L21_V001/L21_V001/*.jpg`, hợp nhất chúng bằng symlink và ghi mọi feature vào một thư mục:
 
 ```text
 /kaggle/working/siglip2/
