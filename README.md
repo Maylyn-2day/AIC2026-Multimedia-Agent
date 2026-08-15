@@ -130,18 +130,6 @@ python -m backend.offline_indexing.cli features \
 
 Không thêm `--dense` khi chạy toàn bộ keyframe; chỉ bật cho tập ứng viên nhỏ cần rerank.
 
-### Chạy batch 1 trên Kaggle
-
-Mở `notebooks/kaggle_siglip2_features.ipynb`, bật GPU và Internet, tạo Kaggle Secret `GITHUB_TOKEN` có quyền read-only repository private, rồi sửa `DATASET_HANDLE` thành `owner/dataset-name`. Notebook dùng KaggleHub tải các version 1–44, tìm đúng 873 thư mục video kể cả cấu trúc lồng `L21_V001/L21_V001/*.jpg`, hợp nhất chúng bằng symlink và ghi mọi feature vào một thư mục:
-
-```text
-/kaggle/working/siglip2/
-├── global/<video_id>.npy
-└── manifest.json
-```
-
-Mỗi phiên mặc định xử lý tối đa 100 video. Khi tiếp tục, gắn output cũ làm Input; notebook tự chép `global/*.npy` hợp lệ vào output mới và chỉ chạy các video còn thiếu. Mỗi lần đều tạo `/kaggle/working/siglip2-global.zip` tích lũy.
-
 ## 5. Chuẩn hóa Objects BTC
 
 ```bash
