@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -117,11 +118,49 @@ def preprocess_videos(
     video_directory: Path,
     output_directory: Path,
     video_ids: list[str],
+    skip_existing: bool = False,
+    workers: int = 1,
     **settings: Any,
 ) -> list[dict[str, Any]]:
     """Process selected MP4 files and persist a reproducible run report."""
-    reports = [preprocess_video(video_directory / f"{video_id}.mp4", output_directory, **settings) for video_id in video_ids]
+    if workers < 1:
+        raise ValueError("workers must be at least 1")
+    reports = []
+    pending = []
+    for video_id in video_ids:
+        mapping_path = output_directory / "map-keyframes" / f"{video_id}.csv"
+        image_count = len(list((output_directory / "keyframes" / video_id).glob("*.jpg")))
+        if skip_existing and mapping_path.is_file():
+            with mapping_path.open(encoding="utf-8", newline="") as file:
+                mapping_count = sum(1 for _ in csv.DictReader(file))
+            if mapping_count > 0 and mapping_count == image_count:
+                report = {"video_id": video_id, "keyframes": image_count, "status": "skipped"}
+                reports.append(report)
+                print(json.dumps(report), flush=True)
+                continue
+        pending.append(video_id)
+
+    def record(report: dict[str, Any]) -> None:
+        report["status"] = "completed"
+        reports.append(report)
+        print(json.dumps(report), flush=True)
+
+    if workers == 1:
+        for video_id in pending:
+            record(preprocess_video(video_directory / f"{video_id}.mp4", output_directory, **settings))
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(preprocess_video, video_directory / f"{video_id}.mp4", output_directory, **settings): video_id
+                for video_id in pending
+            }
+            for future in as_completed(futures):
+                record(future.result())
+    reports.sort(key=lambda report: str(report["video_id"]))
     report_path = output_directory / "preprocessing-report.json"
     report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps({"settings": settings, "videos": reports}, indent=2), encoding="utf-8")
+    report_path.write_text(
+        json.dumps({"settings": settings, "skip_existing": skip_existing, "workers": workers, "videos": reports}, indent=2),
+        encoding="utf-8",
+    )
     return reports

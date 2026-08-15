@@ -230,6 +230,8 @@ data/stream_store/
 
 # Large local datasets, archives, and model weights
 *.zip
+*.npy
+*.npz
 *.safetensors
 *.pt
 *.pth

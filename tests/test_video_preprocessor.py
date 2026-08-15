@@ -6,7 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from backend.offline_indexing.video_preprocessor import l1_distance, preprocess_video
+from backend.offline_indexing.video_preprocessor import l1_distance, preprocess_video, preprocess_videos
 from backend.offline_indexing.keyframe_validator import validate_keyframes
 
 
@@ -39,6 +39,8 @@ class VideoPreprocessorTest(unittest.TestCase):
             validation = validate_keyframes(root, root / "output", root / "output/map-keyframes", ["demo"])
             self.assertTrue(validation[0]["saved_frame_mapping_valid"])
             self.assertEqual(validation[0]["count_ratio"], 1.0)
+            resumed = preprocess_videos(root, root / "output", ["demo"], skip_existing=True)
+            self.assertEqual(resumed[0]["status"], "skipped")
 
 
 if __name__ == "__main__":

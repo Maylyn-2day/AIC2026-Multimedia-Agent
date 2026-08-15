@@ -32,6 +32,8 @@ def main() -> None:
     preprocess_command.add_argument("--scene-threshold", type=float, default=27.0)
     preprocess_command.add_argument("--dedup-threshold", type=float, default=0.04)
     preprocess_command.add_argument("--minimum-scene-frames", type=int, default=15)
+    preprocess_command.add_argument("--skip-existing", action="store_true")
+    preprocess_command.add_argument("--workers", type=int, default=1)
 
     validate_command = commands.add_parser("validate", help="validate generated keyframes and mappings")
     validate_command.add_argument("video_directory", type=Path)
@@ -68,6 +70,8 @@ def main() -> None:
             scene_threshold=arguments.scene_threshold,
             dedup_threshold=arguments.dedup_threshold,
             minimum_scene_frames=arguments.minimum_scene_frames,
+            skip_existing=arguments.skip_existing,
+            workers=arguments.workers,
         )
         print(json.dumps(reports, indent=2))
     elif arguments.command == "validate":

@@ -128,9 +128,19 @@ python -m backend.offline_indexing.cli features \
   --weights /path/to/open_clip_model.safetensors
 ```
 
-Bỏ `--weights` nếu file pretrained `webli` đã có trong Hugging Face cache. Không thêm `--dense` khi chạy toàn bộ keyframe; chỉ bật cho tập ứng viên nhỏ cần rerank.
+Không thêm `--dense` khi chạy toàn bộ keyframe; chỉ bật cho tập ứng viên nhỏ cần rerank.
 
-Trạng thái hiện tại: tải weights từ Hugging Face bị reset kết nối và máy phát triển không có CUDA, nên chưa có `siglip2/global/*.npy` để bàn giao.
+### Chạy batch 1 trên Kaggle
+
+Mở `notebooks/kaggle_siglip2_features.ipynb`, bật GPU và Internet, rồi gắn đủ 44 Kaggle Inputs. Notebook tự tìm 873 thư mục video kể cả cấu trúc lồng `L21_V001/L21_V001/*.jpg`, hợp nhất chúng bằng symlink và ghi mọi feature vào một thư mục:
+
+```text
+/kaggle/working/siglip2/
+├── global/<video_id>.npy
+└── manifest.json
+```
+
+Nếu tiếp tục từ một phiên trước, gắn output cũ làm Input; notebook tự chép `global/*.npy` hợp lệ vào output mới và chỉ chạy các video còn thiếu. File tải về cuối cùng là `/kaggle/working/siglip2-global.zip`.
 
 ## 5. Chuẩn hóa Objects BTC
 
