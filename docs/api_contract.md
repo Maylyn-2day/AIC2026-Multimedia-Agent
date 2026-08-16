@@ -73,11 +73,14 @@ Bằng cách chỉ gọi Qwen2.5-VL cho 5-10 khung hình cuối cùng, hệ th�
   "filters": {
     "objects": ["person", "laptop"],
     "ocr": "HTV9",
-    "timestamp_range": ["10:00", "12:00"]
+    "timestamp_range": ["2026-03-14T10:00:00Z", "2026-03-14T12:00:00Z"]
   },
   "use_hippo_rag": true
 }
 ```
+`timestamp_range` phải gồm hai ISO 8601 datetime đầy đủ có múi giờ theo thứ tự
+`[start, end]`; `start` không được lớn hơn `end`.
+
 * **Response:** Trả về `cluster_id` và `som_coords` (tọa độ SOM) để UI hiển thị lưới kết quả trực quan.
 * **Latency Budget:** <400ms.
 
