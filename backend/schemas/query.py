@@ -8,7 +8,7 @@ Elasticsearch BM25 with RRF fusion.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 
 class QueryFilters(BaseModel):
@@ -31,11 +31,11 @@ class QueryFilters(BaseModel):
         default=None,
         description="ASR transcript keyword to match",
     )
-    timestamp_range: list[str] | None = Field(
+    timestamp_range: tuple[AwareDatetime, AwareDatetime] | None = Field(
         default=None,
-        min_length=2,
-        max_length=2,
-        description="Time range filter as [start, end] (e.g. ['10:00', '12:00'])",
+        description=(
+            "Inclusive ISO 8601 datetime range as [start, end] (e.g. ['2026-03-14T10:00:00Z', '2026-03-14T12:00:00Z'])"
+        ),
     )
     video_ids: list[str] | None = Field(
         default=None,
@@ -45,6 +45,15 @@ class QueryFilters(BaseModel):
         default=None,
         description="YouTube channel name filter",
     )
+
+    @model_validator(mode="after")
+    def validate_timestamp_order(self) -> QueryFilters:
+        """Reject timestamp ranges whose start is later than their end."""
+        if self.timestamp_range is not None:
+            start, end = self.timestamp_range
+            if start > end:
+                raise ValueError("timestamp_range start must not be later than end")
+        return self
 
 
 class HybridQueryRequest(BaseModel):
