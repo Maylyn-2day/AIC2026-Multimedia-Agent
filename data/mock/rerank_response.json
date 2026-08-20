@@ -1,0 +1,32 @@
+{
+  "status": "success",
+  "data": {
+    "results": [
+      {
+        "video_id": "L01_V001",
+        "frame_id": 1500,
+        "original_score": 0.92,
+        "rerank_score": 0.97,
+        "vqa_answer": "màu đỏ",
+        "grounding": [
+          {"label": "person", "confidence": 0.95, "bbox": [0.1, 0.2, 0.5, 0.8]},
+          {"label": "red shirt", "confidence": 0.89, "bbox": [0.15, 0.3, 0.45, 0.65]}
+        ]
+      },
+      {
+        "video_id": "L01_V001",
+        "frame_id": 1520,
+        "original_score": 0.88,
+        "rerank_score": 0.91,
+        "vqa_answer": null,
+        "grounding": [
+          {"label": "person", "confidence": 0.93, "bbox": [0.2, 0.15, 0.6, 0.85]}
+        ]
+      }
+    ],
+    "vqa_answer": "màu đỏ"
+  },
+  "message": "Reranking completed with Qwen2.5-VL verification",
+  "execution_time": "0.55s",
+  "agent_reasoning": "VQA task detected. Qwen2.5-VL extracted answer 'màu đỏ' from frame L01_V001:1500 with 97% confidence."
+}

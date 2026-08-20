@@ -1,0 +1,85 @@
+{
+  "status": "success",
+  "data": {
+    "results": [
+      {
+        "video_id": "L01_V001",
+        "frame_id": 1500,
+        "score": 0.92,
+        "thumbnail_url": "/data/raw/keyframes/L01_V001/1500.jpg",
+        "metadata": {
+          "ocr_text": "HTV9 - Thời sự",
+          "objects": ["person", "microphone", "desk"],
+          "asr_text": "Tin tức thời sự hôm nay",
+          "channel": "HTV9"
+        }
+      },
+      {
+        "video_id": "L01_V001",
+        "frame_id": 1520,
+        "score": 0.88,
+        "thumbnail_url": "/data/raw/keyframes/L01_V001/1520.jpg",
+        "metadata": {
+          "ocr_text": "HTV9",
+          "objects": ["person", "laptop", "table"],
+          "asr_text": "",
+          "channel": "HTV9"
+        }
+      },
+      {
+        "video_id": "L02_V003",
+        "frame_id": 450,
+        "score": 0.85,
+        "thumbnail_url": "/data/raw/keyframes/L02_V003/0450.jpg",
+        "metadata": {
+          "ocr_text": "",
+          "objects": ["person", "car", "building"],
+          "asr_text": "Trước cổng trường đại học",
+          "channel": "VTV1"
+        }
+      },
+      {
+        "video_id": "L02_V003",
+        "frame_id": 480,
+        "score": 0.82,
+        "thumbnail_url": "/data/raw/keyframes/L02_V003/0480.jpg",
+        "metadata": {
+          "ocr_text": "ĐH Bách Khoa",
+          "objects": ["person", "bicycle", "building"],
+          "asr_text": "",
+          "channel": "VTV1"
+        }
+      },
+      {
+        "video_id": "L03_V010",
+        "frame_id": 2200,
+        "score": 0.78,
+        "thumbnail_url": "/data/raw/keyframes/L03_V010/2200.jpg",
+        "metadata": {
+          "ocr_text": "Quán Cà Phê Sài Gòn",
+          "objects": ["person", "cup", "chair", "table"],
+          "asr_text": "Chào mừng bạn đến với quán",
+          "channel": "HTV7"
+        }
+      },
+      {
+        "video_id": "L04_V015",
+        "frame_id": 800,
+        "score": 0.75,
+        "thumbnail_url": "/data/raw/keyframes/L04_V015/0800.jpg",
+        "metadata": {
+          "ocr_text": "",
+          "objects": ["person", "dog", "park"],
+          "asr_text": "",
+          "channel": "THVL1"
+        }
+      }
+    ],
+    "total": 6,
+    "cluster_id": "cluster_A3",
+    "som_coords": [[0.2, 0.3], [0.25, 0.32], [0.6, 0.7], [0.62, 0.72], [0.4, 0.5], [0.8, 0.1]]
+  },
+  "message": "Hybrid search completed (RRF k=60)",
+  "execution_time": "0.35s",
+  "agent_reasoning": "Query classified as KIS. Filters applied: objects=['person'], ocr='HTV9'. Dense search returned 50 candidates, sparse search returned 30. RRF fusion produced 6 unique results above threshold."
+}
