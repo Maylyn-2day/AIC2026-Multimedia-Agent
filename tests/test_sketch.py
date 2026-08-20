@@ -20,7 +20,8 @@ from unittest.mock import MagicMock
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from PIL import Image as PILImage
+    from PIL.Image import Image as PILImage
+    from backend.services.sketch_service import SketchService
 
 # ---------------------------------------------------------------------------
 # Shared PIL image factory
@@ -150,9 +151,9 @@ class TestDrawBboxes:
     def test_does_not_mutate_original(self) -> None:
         from frontend.utils.image_utils import draw_bboxes
         img = _make_pil_image(100, 80)
-        original_data = list(img.getdata())
+        original_bytes = img.tobytes()
         draw_bboxes(img, [self._BBOX])
-        assert list(img.getdata()) == original_data
+        assert img.tobytes() == original_bytes
 
     def test_empty_bboxes_returns_identical_image(self) -> None:
         from frontend.utils.image_utils import draw_bboxes
@@ -426,7 +427,7 @@ class TestSketchServiceSearchBySketch:
         from backend.services.sketch_service import SketchService
         svc = SketchService(encoder=None)
         results = svc.search_by_sketch(self._make_sketch_b64(), top_k=10)
-        scores = [float(r["score"]) for r in results]
+        scores = [float(r["score"]) for r in results]  # type: ignore[arg-type]
         assert scores == sorted(scores, reverse=True)
 
     def test_top_k_one_returns_single_result(self) -> None:
