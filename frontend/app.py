@@ -24,6 +24,7 @@ import streamlit as st
 
 from frontend.components.chatbot_sidebar import render_chatbot_sidebar
 from frontend.components.som_grid import render_som_grid
+from frontend.components.submission_sidebar import render_submission_sidebar
 from frontend.utils.api_client import check_health
 
 # ── Page Configuration ───────────────────────────────────────
@@ -141,12 +142,8 @@ def main() -> None:
     st.sidebar.text_input("Channel", key="filter_channel", placeholder="e.g. VTV1")
     st.sidebar.divider()
 
-    # ── LEFT SIDEBAR: Submission Controls ────────────────────
-    st.sidebar.markdown("## 📤 Submission")
-    st.sidebar.selectbox("Task Type", options=["KIS", "VQA", "TRAKE"], key="task_type")
-    st.sidebar.text_input("Question ID", key="question_id", placeholder="Q001")
-    if st.sidebar.button("📨 Submit Results", use_container_width=True):
-        st.sidebar.info("⏳ Submission endpoint ready (connect in Phase 4)")
+    # ── LEFT SIDEBAR: Validate-only Submission Controls ──────
+    render_submission_sidebar()
 
     # ── CENTER MAIN AREA: Results Grid ───────────────────────
     render_som_grid()

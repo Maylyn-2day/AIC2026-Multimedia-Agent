@@ -102,7 +102,7 @@ Bằng cách chỉ gọi Qwen2.5-VL cho 5-10 khung hình cuối cùng, hệ th�
 * **Latency Budget:** <200ms.
 
 ### 3.7. Endpoint 7: POST `/v1/submission/submit`
-* **Chức năng:** Đóng gói dữ liệu nộp BTC. Bắt buộc tuân thủ định dạng:
+* **Chức năng hiện tại:** Kiểm tra và đóng gói dữ liệu cục bộ theo định dạng BTC. Endpoint chưa gửi dữ liệu đến server cuộc thi và luôn trả `submitted=false`; `validated=true` chỉ có nghĩa là validation cục bộ thành công.
 ```json
 {
   "task_type": "KIS | VQA | TRAKE",
@@ -113,13 +113,19 @@ Bằng cách chỉ gọi Qwen2.5-VL cho 5-10 khung hình cuối cùng, hệ th�
 ```
 * **Latency Budget:** <100ms.
 
+### 3.8. Agent routing
+* `POST /v1/agent/route` nhận `AgentRequest`; `X-Session-ID` bắt buộc và phải khớp `session_id` trong body. Caller có thể truyền `task_type` (`KIS`, `VQA`, `TRAKE`); khi bỏ trống, provider local dùng heuristic best-effort và ưu tiên KIS nếu không đủ bằng chứng.
+* `DELETE /v1/agent/session/{session_id}` chỉ xóa session khớp header của caller.
+* `decision_summary` là mô tả công khai ngắn về task và bước xử lý, không phải Chain-of-Thought hay hidden reasoning. `agent_reasoning` luôn là `null`.
+* Provider mặc định hiện tại là fallback heuristic chạy local, deterministic và không gọi Gemini/network.
+
 ---
 
 ## 4. Chiến thuật Nộp bài và Tối ưu hóa Điểm số (Final Score)
 Điểm cuối cùng được tính bằng trung bình cộng các chỉ số $R@k$ ($k \in \{1, 5, 20, 50, 100\}$).
 
-### 4.1. Chiến lược "Phủ đầy 100"
-Hệ thống bắt buộc nộp đủ 100 kết quả cho mỗi câu hỏi. Sắp xếp kết quả theo RRF Score giảm dần. Điều này đảm bảo rằng ngay cả khi Top-1 sai, các mốc R@20 đến R@100 vẫn đạt điểm tối đa (1.0), kéo Final Score lên cao.
+### 4.1. Giới hạn kết quả
+Mỗi truy vấn được gửi tối đa 100 câu trả lời và không bắt buộc đủ 100. Hệ thống giữ nguyên thứ tự kết quả thực có, không nhân bản candidate để lấp đầy danh sách.
 
 ### 4.2. Hệ thống Lý luận System 2
 Tác tử AI sẽ tự động phân loại nhiệm vụ:

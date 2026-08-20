@@ -1,20 +1,17 @@
-"""
-Submission Schemas.
-
-Request and response models for ``POST /v1/submission/submit`` —
-packages results for the AIC 2026 competition scoring server.
-Must strictly follow the BTC-mandated format.
-"""
+"""Strict schemas for local validation and packaging of submissions."""
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
+from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+StrictFrameId = Annotated[int, Field(strict=True, ge=0)]
 
 
-class TaskType(str, Enum):
-    """Competition task types as defined by AIC 2026 rules."""
+class TaskType(StrEnum):
+    """Canonical AIC 2026 task types; Q&A is represented as VQA."""
 
     KIS = "KIS"
     VQA = "VQA"
@@ -22,47 +19,52 @@ class TaskType(str, Enum):
 
 
 class SubmissionItem(BaseModel):
-    """
-    A single result entry in the submission payload.
+    """One caller-ranked video frame, optionally with a VQA answer."""
 
-    For KIS: ``video_id`` + ``frame_id`` required.
-    For VQA: ``video_id`` + ``frame_id`` + ``answer`` required.
-    For TRAKE: ``video_id`` + ``frame_id`` (multiple per sequence).
-    """
+    model_config = ConfigDict(extra="forbid")
+    video_id: str = Field(min_length=1, max_length=200)
+    frame_id: StrictFrameId
+    answer: str | None = Field(default=None, max_length=2000)
 
-    video_id: str = Field(..., description="Video identifier (e.g. 'L01_V001')")
-    frame_id: int = Field(..., ge=0, description="Frame index within the video")
-    answer: str | None = Field(
-        default=None,
-        description="Text answer for VQA tasks (e.g. 'màu đỏ')",
-    )
+    @field_validator("video_id")
+    @classmethod
+    def strip_video_id(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("video_id must not be blank")
+        return stripped
+
+    @field_validator("answer")
+    @classmethod
+    def strip_answer(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
 
 
 class SubmissionPayload(BaseModel):
-    """
-    Request body for ``POST /v1/submission/submit``.
+    """Submission candidate list containing at most 100 caller-ranked items."""
 
-    Matches the BTC-mandated format from ``docs/api_contract.md`` Section 3.7.
-    The system enforces the "Fill 100" strategy: always submit 100 ranked results.
-    """
+    model_config = ConfigDict(extra="forbid")
+    task_type: TaskType
+    question_id: str = Field(default="", max_length=200)
+    results: list[SubmissionItem]
 
-    task_type: TaskType = Field(..., description="Task type: KIS, VQA, or TRAKE")
-    question_id: str = Field(
-        default="",
-        description="Competition question identifier",
-    )
-    results: list[SubmissionItem] = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="Ranked results (up to 100, sorted by score descending)",
-    )
+    @field_validator("question_id")
+    @classmethod
+    def strip_question_id(cls, value: str) -> str:
+        return value.strip()
 
 
-class SubmissionResult(BaseModel):
-    """Response data after a successful submission."""
+class PackagedSubmission(BaseModel):
+    """Locally validated package; it has not been sent to the BTC server."""
 
-    submitted: bool = Field(..., description="Whether submission was accepted")
-    task_type: str = Field(..., description="Task type that was submitted")
-    result_count: int = Field(..., description="Number of results submitted")
-    question_id: str = Field(default="", description="Question ID submitted for")
+    model_config = ConfigDict(extra="forbid")
+    task_type: TaskType
+    question_id: str
+    results: list[SubmissionItem]
+    result_count: int
+    validated: bool = True
+    submitted: bool = False
+
+
+class SubmissionResult(PackagedSubmission):
+    """Backward-compatible name for the validate-only result schema."""
