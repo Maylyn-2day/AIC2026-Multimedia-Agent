@@ -131,4 +131,5 @@ class TestAllEndpointsReturnMock:
             headers=session_headers,
         )
         assert response.status_code == 200
-        assert response.json()["data"]["submitted"] is True
+        assert response.json()["data"]["validated"] is True
+        assert response.json()["data"]["submitted"] is False
