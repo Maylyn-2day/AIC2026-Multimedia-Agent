@@ -11,11 +11,24 @@ from pydantic import BaseModel, Field
 
 
 class RerankCandidate(BaseModel):
-    """A single candidate keyframe to be reranked by the VLM."""
+    """A single candidate keyframe to be reranked by the VLM.
+
+    The ``rrf_score`` field carries the fused ranking score computed by
+    :func:`backend.services.fusion.weighted_rrf` through the API boundary.
+    When present it is used as the base for rerank scoring; ``score`` is
+    kept as the pre-fusion retrieval score for comparison and display.
+    """
 
     video_id: str = Field(..., description="Video identifier")
     frame_id: int = Field(..., description="Frame index within the video")
     score: float = Field(..., description="Initial retrieval score (pre-rerank)")
+    rrf_score: float | None = Field(
+        default=None,
+        description=(
+            "RRF fusion score from weighted_rrf(). When provided, the reranker "
+            "uses this as the base multiplied by grounding_confidence."
+        ),
+    )
     thumbnail_path: str | None = Field(default=None, description="Path to keyframe image")
 
 
@@ -53,7 +66,7 @@ class GroundingResult(BaseModel):
         ...,
         min_length=4,
         max_length=4,
-        description="Bounding box [x1, y1, x2, y2] normalized",
+        description="Bounding box [x1, y1, x2, y2] normalized to [0, 1]",
     )
 
 
@@ -66,6 +79,10 @@ class RerankResultItem(BaseModel):
     rerank_score: float
     vqa_answer: str | None = Field(default=None, description="VQA text answer if extracted")
     grounding: list[GroundingResult] = Field(default_factory=list)
+    reasoning_trace: str | None = Field(
+        default=None,
+        description="System 2 Chain-of-Thought trace from VLM reasoning (Phase 3+)",
+    )
 
 
 class VQAResponse(BaseModel):
