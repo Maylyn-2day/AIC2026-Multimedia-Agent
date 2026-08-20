@@ -84,19 +84,29 @@ class TestAllEndpointsReturnMock:
         assert response.status_code == 200
 
     def test_image_query_endpoint(self, client: TestClient, session_headers: dict) -> None:
-        """POST /v1/query/image-example should return 200."""
+        """POST /v1/query/image-example should return 200 with Mode A (base64 image)."""
+        import io, base64
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (32, 32), (100, 150, 200)).save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
         response = client.post(
             "/v1/query/image-example",
-            json={"video_id": "V001", "frame_id": 100},
+            json={"image_base64": b64, "top_k": 5},
             headers=session_headers,
         )
         assert response.status_code == 200
 
     def test_sketch_endpoint(self, client: TestClient, session_headers: dict) -> None:
-        """POST /v1/query/sketch should return 200."""
+        """POST /v1/query/sketch should return 200 with a valid PNG sketch."""
+        import io, base64
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (32, 32), (200, 200, 200)).save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
         response = client.post(
             "/v1/query/sketch",
-            json={"sketch_base64": "base64data=="},
+            json={"sketch_base64": b64},
             headers=session_headers,
         )
         assert response.status_code == 200

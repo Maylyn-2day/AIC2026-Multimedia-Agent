@@ -426,7 +426,7 @@ class TestSketchServiceSearchBySketch:
         from backend.services.sketch_service import SketchService
         svc = SketchService(encoder=None)
         results = svc.search_by_sketch(self._make_sketch_b64(), top_k=10)
-        scores = [r["score"] for r in results]
+        scores = [float(r["score"]) for r in results]
         assert scores == sorted(scores, reverse=True)
 
     def test_top_k_one_returns_single_result(self) -> None:
@@ -458,6 +458,7 @@ class TestSketchServiceSearchBySketch:
         results = svc.search_by_sketch(self._make_sketch_b64())
         assert results == []
 
+
     def test_deterministic_same_sketch_same_results(self) -> None:
         from backend.services.sketch_service import SketchService
         svc = SketchService(encoder=None)
@@ -465,3 +466,211 @@ class TestSketchServiceSearchBySketch:
         r1 = svc.search_by_sketch(b64, top_k=5)
         r2 = svc.search_by_sketch(b64, top_k=5)
         assert r1 == r2
+
+
+# ===========================================================================
+# 3. HTTP Integration tests — POST /v1/query/sketch
+# ===========================================================================
+
+
+@pytest.fixture
+def mock_sketch_service() -> "SketchService":
+    from backend.services.sketch_service import SketchService
+    return SketchService(encoder=None, vector_dim=768, apply_edge_detection=False)
+
+
+@pytest.fixture
+def sketch_api_client(mock_sketch_service: "SketchService"):
+    """TestClient with SketchService dependency override for sketch route."""
+    from fastapi.testclient import TestClient
+    from backend.api.v1.sketch import get_sketch_service
+    from backend.main import app
+
+    app.dependency_overrides[get_sketch_service] = lambda: mock_sketch_service
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+
+
+def _make_sketch_payload(n: int = 1) -> dict:
+    """Build a minimal valid SketchQueryRequest payload."""
+    import io, base64
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (200, 200, 200)).save(buf, format="PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    return {"sketch_base64": b64, "prompt": "test sketch", "top_k": n}
+
+
+class TestSketchRouteSchema:
+    """Integration tests for POST /v1/query/sketch."""
+
+    def test_returns_200(self, sketch_api_client) -> None:
+        resp = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload())
+        assert resp.status_code == 200
+
+    def test_response_has_base_response_envelope(self, sketch_api_client) -> None:
+        body = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload()).json()
+        assert "status" in body
+        assert "data" in body
+        assert "execution_time" in body
+
+    def test_data_has_results_and_total(self, sketch_api_client) -> None:
+        data = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload()).json()["data"]
+        assert "results" in data
+        assert "total" in data
+
+    def test_total_matches_results_len(self, sketch_api_client) -> None:
+        data = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload(5)).json()["data"]
+        assert data["total"] == len(data["results"])
+
+    def test_results_have_required_fields(self, sketch_api_client) -> None:
+        data = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload(3)).json()["data"]
+        for r in data["results"]:
+            assert "video_id" in r
+            assert "frame_id" in r
+            assert "score" in r
+
+    def test_status_is_success(self, sketch_api_client) -> None:
+        body = sketch_api_client.post("/v1/query/sketch", json=_make_sketch_payload()).json()
+        assert body["status"] == "success"
+
+    def test_session_id_header_accepted(self, sketch_api_client) -> None:
+        resp = sketch_api_client.post(
+            "/v1/query/sketch",
+            json=_make_sketch_payload(),
+            headers={"X-Session-ID": "sess-abc"},
+        )
+        assert resp.status_code == 200
+
+    def test_missing_sketch_base64_returns_422(self, sketch_api_client) -> None:
+        resp = sketch_api_client.post(
+            "/v1/query/sketch",
+            json={"prompt": "missing sketch", "top_k": 10},
+        )
+        assert resp.status_code == 422
+
+    def test_top_k_above_limit_returns_422(self, sketch_api_client) -> None:
+        payload = _make_sketch_payload()
+        payload["top_k"] = 501
+        resp = sketch_api_client.post("/v1/query/sketch", json=payload)
+        assert resp.status_code == 422
+
+    def test_top_k_zero_returns_422(self, sketch_api_client) -> None:
+        payload = _make_sketch_payload()
+        payload["top_k"] = 0
+        resp = sketch_api_client.post("/v1/query/sketch", json=payload)
+        assert resp.status_code == 422
+
+
+# ===========================================================================
+# 4. HTTP Integration tests — POST /v1/query/image-example
+# ===========================================================================
+
+
+@pytest.fixture
+def image_query_api_client(mock_sketch_service: "SketchService", tmp_path):
+    """TestClient with SketchService + keyframes_dir overrides for image-query route."""
+    from fastapi.testclient import TestClient
+    from backend.api.v1.image_query import get_sketch_service, get_keyframes_dir
+    from backend.main import app
+
+    app.dependency_overrides[get_sketch_service] = lambda: mock_sketch_service
+    app.dependency_overrides[get_keyframes_dir] = lambda: tmp_path
+    with TestClient(app, raise_server_exceptions=False) as client:
+        yield client, tmp_path
+    app.dependency_overrides.clear()
+
+
+def _make_b64_image() -> str:
+    import io, base64
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), (100, 150, 200)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+class TestImageQueryRouteSchema:
+    """Integration tests for POST /v1/query/image-example."""
+
+    def test_mode_a_returns_200(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        resp = client.post(
+            "/v1/query/image-example",
+            json={"image_base64": _make_b64_image(), "top_k": 5},
+        )
+        assert resp.status_code == 200
+
+    def test_mode_a_response_has_results(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        data = client.post(
+            "/v1/query/image-example",
+            json={"image_base64": _make_b64_image(), "top_k": 5},
+        ).json()["data"]
+        assert "results" in data
+        assert "total" in data
+
+    def test_mode_a_source_mode_is_base64(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        data = client.post(
+            "/v1/query/image-example",
+            json={"image_base64": _make_b64_image(), "top_k": 3},
+        ).json()["data"]
+        assert data["source"]["mode"] == "base64"
+
+    def test_mode_b_valid_keyframe_returns_200(self, image_query_api_client) -> None:
+        from PIL import Image as PILImage
+        client, tmp_path = image_query_api_client
+        video_dir = tmp_path / "L01_V001"
+        video_dir.mkdir()
+        PILImage.new("RGB", (64, 64), (0, 128, 255)).save(video_dir / "000100.jpg")
+
+        resp = client.post(
+            "/v1/query/image-example",
+            json={"video_id": "L01_V001", "frame_id": 100, "top_k": 5},
+        )
+        assert resp.status_code == 200
+
+    def test_mode_b_missing_keyframe_returns_404(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        resp = client.post(
+            "/v1/query/image-example",
+            json={"video_id": "MISSING", "frame_id": 9999, "top_k": 5},
+        )
+        assert resp.status_code == 404
+
+    def test_no_input_returns_400(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        resp = client.post(
+            "/v1/query/image-example",
+            json={"top_k": 5},
+        )
+        assert resp.status_code == 400
+
+    def test_only_video_id_no_frame_id_returns_400(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        resp = client.post(
+            "/v1/query/image-example",
+            json={"video_id": "L01_V001", "top_k": 5},
+        )
+        assert resp.status_code == 400
+
+    def test_results_have_keyframe_result_fields(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        data = client.post(
+            "/v1/query/image-example",
+            json={"image_base64": _make_b64_image(), "top_k": 5},
+        ).json()["data"]
+        for r in data["results"]:
+            assert "video_id" in r
+            assert "frame_id" in r
+            assert "score" in r
+
+    def test_execution_time_is_parseable(self, image_query_api_client) -> None:
+        client, _ = image_query_api_client
+        body = client.post(
+            "/v1/query/image-example",
+            json={"image_base64": _make_b64_image(), "top_k": 3},
+        ).json()
+        et = body["execution_time"]
+        assert et.endswith("s") and float(et[:-1]) >= 0.0
