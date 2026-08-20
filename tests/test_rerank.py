@@ -1,15 +1,17 @@
 """
-Unit tests for the Grounding DINO reranker service.
+Unit & integration tests for the reranker pipeline (Step 1 + Step 2).
 
-All tests mock the Grounding DINO model weights so the suite runs
-fully in CPU-only CI/CD environments without downloading HuggingFace
-checkpoints.  Tests are organised into four groups:
+All tests mock heavy model weights so the suite runs fully in CPU-only
+CI/CD environments without downloading HuggingFace checkpoints.
+Tests are organised into seven groups:
 
 1. **Path resolution** — :func:`resolve_keyframe_path` (pure function).
 2. **Score computation** — :func:`_compute_rerank_score` (pure function).
-3. **Grounding output parsing** — :func:`_parse_grounding_output` (pure function).
-4. **GroundingReranker** — lifecycle (load / unload), rerank logic,
-   passthrough fallback, and validation guards.
+3. **Grounding output parsing** — :func:`_parse_grounding_output` (torch-gated).
+4. **GroundingReranker** — lifecycle, rerank logic, passthrough, validation.
+5. **GroundingReranker.alpha** — constructor validation and property.
+6. **VLMService** — lifecycle, VQA extraction, deep reasoning, parse helpers.
+7. **HTTP integration** — ``POST /v1/rerank/early-fusion`` via TestClient.
 """
 
 from __future__ import annotations
@@ -24,6 +26,11 @@ from backend.services.reranker import (
     _compute_rerank_score,
     _parse_grounding_output,
     resolve_keyframe_path,
+)
+from backend.services.vlm_service import (
+    VLMService,
+    _parse_vlm_relevance,
+    _resolve_path,
 )
 
 # Detect PyTorch availability at collection time without crashing the module.
@@ -669,3 +676,427 @@ class TestRerankCandidateSchema:
             reasoning_trace="Chain of thought: ...",
         )
         assert item.reasoning_trace == "Chain of thought: ..."
+
+
+# ===========================================================================
+# 6. VLMService — unit tests
+# ===========================================================================
+
+
+@pytest.fixture
+def vlm() -> VLMService:
+    """Fresh unloaded VLMService (CPU, no 4-bit) for each test."""
+    return VLMService(
+        model_id="Qwen/Qwen2.5-VL-7B-Instruct",
+        device="cpu",
+        use_4bit=False,
+        max_vram_gb=8.0,
+    )
+
+
+class TestVLMServiceLifecycle:
+    """Tests for VLMService model load / unload lifecycle."""
+
+    def test_initial_state_is_not_loaded(self, vlm: VLMService) -> None:
+        assert vlm.is_loaded is False
+
+    def test_unload_when_not_loaded_is_idempotent(self, vlm: VLMService) -> None:
+        vlm.unload_model()  # must not raise
+        assert vlm.is_loaded is False
+
+    async def test_load_model_sets_is_loaded(self, vlm: VLMService) -> None:
+        """Simulate a successful load by injecting mock objects."""
+        vlm._processor = MagicMock()
+        vlm._model = MagicMock()
+        vlm._is_loaded = True
+        assert vlm.is_loaded is True
+
+    async def test_load_model_is_idempotent(self, vlm: VLMService) -> None:
+        sentinel = object()
+        vlm._processor = MagicMock()
+        vlm._model = sentinel
+        vlm._is_loaded = True
+        await vlm.load_model()  # second call should no-op
+        assert vlm._model is sentinel
+
+    async def test_unload_after_load_sets_is_loaded_false(self, vlm: VLMService) -> None:
+        vlm._processor = MagicMock()
+        vlm._model = MagicMock()
+        vlm._is_loaded = True
+        vlm.unload_model()
+        assert vlm.is_loaded is False
+        assert vlm._model is None
+        assert vlm._processor is None
+
+
+class TestVLMServicePassthrough:
+    """Tests for fallback behaviour when the VLM is not loaded."""
+
+    async def test_extract_vqa_answer_returns_empty_when_not_loaded(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        assert vlm.is_loaded is False
+        result = await vlm.extract_vqa_answer("What is this?", tmp_path / "frame.jpg")
+        assert result == ""
+
+    async def test_deep_reason_returns_candidates_unchanged_when_not_loaded(
+        self, vlm: VLMService
+    ) -> None:
+        candidates = [
+            RerankResultItem(video_id="V1", frame_id=1, original_score=0.9, rerank_score=0.05),
+            RerankResultItem(video_id="V1", frame_id=2, original_score=0.8, rerank_score=0.04),
+        ]
+        result = await vlm.deep_reason("query", candidates, "/data/keyframes")
+        assert result == candidates
+
+    async def test_deep_reason_empty_candidates_returns_empty(
+        self, vlm: VLMService
+    ) -> None:
+        result = await vlm.deep_reason("query", [], "/data/keyframes")
+        assert result == []
+
+
+class TestVLMServiceExtractVQA:
+    """Tests for extract_vqa_answer with a mocked model."""
+
+    def _install_mock(self, vlm: VLMService, generated_text: str) -> None:
+        """Wire mock processor + model that return a fixed generated string."""
+        mock_processor = MagicMock()
+        mock_processor.apply_chat_template.return_value = "<prompt>"
+        mock_processor.return_value.to.return_value = {
+            "input_ids": MagicMock(shape=(1, 10)),
+            "pixel_values": MagicMock(),
+        }
+        mock_processor.batch_decode.return_value = [generated_text]
+
+        mock_model = MagicMock()
+        mock_model.generate.return_value = MagicMock()
+
+        vlm._processor = mock_processor
+        vlm._model = mock_model
+        vlm._is_loaded = True
+
+    async def test_returns_generated_text_stripped(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        from PIL import Image as PILImage
+
+        img_path = tmp_path / "frame.jpg"
+        PILImage.new("RGB", (64, 64)).save(img_path)
+
+        self._install_mock(vlm, "  red shirt  ")
+        result = await vlm.extract_vqa_answer("What is she wearing?", img_path)
+        assert result == "red shirt"
+
+    async def test_missing_image_returns_empty(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        self._install_mock(vlm, "answer")
+        # image_path points to a non-existent file
+        result = await vlm.extract_vqa_answer("query", tmp_path / "missing.jpg")
+        assert result == ""
+
+
+class TestVLMServiceDeepReason:
+    """Tests for deep_reason with a mocked model."""
+
+    def _install_mock(self, vlm: VLMService, raw_outputs: list[str]) -> None:
+        """Wire mock that cycles through raw_outputs per generate() call."""
+        call_iter = iter(raw_outputs)
+
+        mock_processor = MagicMock()
+        mock_processor.apply_chat_template.return_value = "<prompt>"
+        mock_processor.return_value.to.return_value = {
+            "input_ids": MagicMock(shape=(1, 10)),
+        }
+        mock_processor.batch_decode.side_effect = lambda ids, **kw: [next(call_iter)]
+
+        mock_model = MagicMock()
+        mock_model.generate.return_value = MagicMock()
+
+        vlm._processor = mock_processor
+        vlm._model = mock_model
+        vlm._is_loaded = True
+
+    async def test_reasoning_trace_is_populated(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        from PIL import Image as PILImage
+
+        video_dir = tmp_path / "V1"
+        video_dir.mkdir()
+        PILImage.new("RGB", (64, 64)).save(video_dir / "000001.jpg")
+
+        raw = "RELEVANT: YES\nSCORE: 0.9\nREASONING: Person visible in foreground."
+        self._install_mock(vlm, [raw])
+
+        candidates = [
+            RerankResultItem(video_id="V1", frame_id=1, original_score=0.9, rerank_score=0.05),
+        ]
+        result = await vlm.deep_reason("query", candidates, tmp_path, top_k=1)
+
+        assert len(result) == 1
+        assert result[0].reasoning_trace == "Person visible in foreground."
+
+    async def test_score_is_blended(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        from PIL import Image as PILImage
+
+        video_dir = tmp_path / "V1"
+        video_dir.mkdir()
+        PILImage.new("RGB", (64, 64)).save(video_dir / "000001.jpg")
+
+        raw = "RELEVANT: YES\nSCORE: 0.8\nREASONING: Match."
+        self._install_mock(vlm, [raw])
+
+        candidates = [
+            RerankResultItem(video_id="V1", frame_id=1, original_score=0.9, rerank_score=0.06),
+        ]
+        result = await vlm.deep_reason("query", candidates, tmp_path, top_k=1)
+
+        # blended = 0.5 * 0.06 + 0.5 * 0.8 = 0.43
+        assert result[0].rerank_score == pytest.approx(0.5 * 0.06 + 0.5 * 0.8)
+
+    async def test_tail_candidates_returned_unchanged(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        from PIL import Image as PILImage
+
+        video_dir = tmp_path / "V1"
+        video_dir.mkdir()
+        PILImage.new("RGB", (64, 64)).save(video_dir / "000001.jpg")
+
+        raw = "RELEVANT: YES\nSCORE: 0.7\nREASONING: OK."
+        self._install_mock(vlm, [raw])
+
+        c1 = RerankResultItem(video_id="V1", frame_id=1, original_score=0.9, rerank_score=0.06)
+        c2 = RerankResultItem(video_id="V1", frame_id=2, original_score=0.8, rerank_score=0.04)
+        result = await vlm.deep_reason("query", [c1, c2], tmp_path, top_k=1)
+
+        # c2 was beyond top_k=1 and must be unchanged
+        assert result[1].frame_id == 2
+        assert result[1].rerank_score == pytest.approx(0.04)
+        assert result[1].reasoning_trace is None
+
+    async def test_missing_image_keeps_candidate_unchanged(
+        self, vlm: VLMService, tmp_path: Path
+    ) -> None:
+        """A missing keyframe must not drop the candidate from results."""
+        self._install_mock(vlm, ["RELEVANT: YES\nSCORE: 0.9\nREASONING: OK."])
+
+        candidates = [
+            RerankResultItem(
+                video_id="MISSING", frame_id=999, original_score=0.5, rerank_score=0.03
+            )
+        ]
+        result = await vlm.deep_reason("query", candidates, tmp_path, top_k=1)
+
+        assert len(result) == 1
+        assert result[0].frame_id == 999
+        assert result[0].reasoning_trace is None  # unchanged — no image to reason about
+
+
+# ---------------------------------------------------------------------------
+# 6b. _parse_vlm_relevance — pure function tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseVLMRelevance:
+    """Tests for :func:`_parse_vlm_relevance`."""
+
+    def test_parses_well_formed_response(self) -> None:
+        raw = "RELEVANT: YES\nSCORE: 0.85\nREASONING: Person visible in foreground."
+        score, trace = _parse_vlm_relevance(raw)
+        assert score == pytest.approx(0.85)
+        assert trace == "Person visible in foreground."
+
+    def test_score_clamped_to_one(self) -> None:
+        raw = "RELEVANT: YES\nSCORE: 1.5\nREASONING: Very relevant."
+        score, _ = _parse_vlm_relevance(raw)
+        assert score == pytest.approx(1.0)
+
+    def test_score_clamped_to_zero(self) -> None:
+        raw = "RELEVANT: NO\nSCORE: -0.2\nREASONING: Not relevant."
+        score, _ = _parse_vlm_relevance(raw)
+        assert score == pytest.approx(0.0)
+
+    def test_malformed_score_falls_back_to_point_five(self) -> None:
+        raw = "RELEVANT: YES\nSCORE: N/A\nREASONING: OK."
+        score, _ = _parse_vlm_relevance(raw)
+        assert score == pytest.approx(0.5)
+
+    def test_missing_reasoning_returns_raw_output(self) -> None:
+        raw = "RELEVANT: YES\nSCORE: 0.7"
+        _, trace = _parse_vlm_relevance(raw)
+        assert "0.7" in trace or "SCORE" in trace  # raw fallback
+
+    def test_no_returns_float(self) -> None:
+        raw = "RELEVANT: YES\nSCORE: 0.6\nREASONING: Match."
+        score, _ = _parse_vlm_relevance(raw)
+        assert isinstance(score, float)
+
+    def test_empty_string_returns_defaults(self) -> None:
+        score, trace = _parse_vlm_relevance("")
+        assert isinstance(score, float)
+        assert isinstance(trace, str)
+
+
+# ===========================================================================
+# 7. HTTP Integration tests — POST /v1/rerank/early-fusion
+# ===========================================================================
+
+
+@pytest.fixture
+def mock_reranker() -> GroundingReranker:
+    """A GroundingReranker with a mocked rerank() that returns deterministic results."""
+    r = GroundingReranker(device="cpu", alpha=0.5)
+    r._is_loaded = False  # ensure passthrough mode
+    return r
+
+
+@pytest.fixture
+def mock_vlm() -> VLMService:
+    """An unloaded VLMService (all calls return fallback values)."""
+    return VLMService(device="cpu", use_4bit=False)
+
+
+@pytest.fixture
+def api_client(mock_reranker: GroundingReranker, mock_vlm: VLMService):
+    """TestClient with dependency overrides for both AI services."""
+    from fastapi.testclient import TestClient
+
+    from backend.api.v1.rerank import get_keyframes_dir, get_reranker, get_vlm
+    from backend.main import app
+
+    app.dependency_overrides[get_reranker] = lambda: mock_reranker
+    app.dependency_overrides[get_vlm] = lambda: mock_vlm
+    app.dependency_overrides[get_keyframes_dir] = lambda: Path("/data/keyframes")
+
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+def _rerank_payload(
+    n: int = 3,
+    task_type: str = "KIS",
+    extract_answer: bool = False,
+) -> dict:
+    """Build a minimal valid RerankRequest payload."""
+    return {
+        "query": "A woman in a red shirt",
+        "candidates": [
+            {"video_id": "L01_V001", "frame_id": i, "score": round(0.9 - i * 0.05, 2)}
+            for i in range(n)
+        ],
+        "task_type": task_type,
+        "extract_answer": extract_answer,
+    }
+
+
+class TestRerankEndpointSchema:
+    """HTTP integration tests verifying the response envelope and schema."""
+
+    def test_returns_200_ok(self, api_client) -> None:
+        resp = api_client.post(
+            "/v1/rerank/early-fusion",
+            json=_rerank_payload(),
+            headers={"X-Session-ID": "test-session"},
+        )
+        assert resp.status_code == 200
+
+    def test_response_has_base_response_fields(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload())
+        body = resp.json()
+        assert "status" in body
+        assert "data" in body
+        assert "message" in body
+        assert "execution_time" in body
+
+    def test_data_contains_results_list(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload(n=3))
+        data = resp.json()["data"]
+        assert "results" in data
+        assert isinstance(data["results"], list)
+
+    def test_result_count_matches_input(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload(n=5))
+        results = resp.json()["data"]["results"]
+        assert len(results) == 5
+
+    def test_each_result_has_required_fields(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload(n=2))
+        for result in resp.json()["data"]["results"]:
+            assert "video_id" in result
+            assert "frame_id" in result
+            assert "rerank_score" in result
+            assert "original_score" in result
+            assert "grounding" in result
+
+    def test_vqa_answer_is_null_for_non_vqa_task(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload(task_type="KIS"))
+        assert resp.json()["data"]["vqa_answer"] is None
+
+    def test_status_is_success(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload())
+        assert resp.json()["status"] == "success"
+
+    def test_execution_time_is_present_and_parseable(self, api_client) -> None:
+        resp = api_client.post("/v1/rerank/early-fusion", json=_rerank_payload())
+        et = resp.json()["execution_time"]
+        assert et.endswith("s")
+        assert float(et[:-1]) >= 0.0
+
+
+class TestRerankEndpointValidation:
+    """Tests for input validation and HTTP error codes."""
+
+    def test_missing_query_returns_422(self, api_client) -> None:
+        payload = _rerank_payload()
+        del payload["query"]
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        assert resp.status_code == 422
+
+    def test_empty_candidates_returns_422(self, api_client) -> None:
+        payload = _rerank_payload()
+        payload["candidates"] = []
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        assert resp.status_code == 422
+
+    def test_too_many_candidates_returns_422(self, api_client) -> None:
+        payload = _rerank_payload(n=51)
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        # Pydantic max_length=50 on candidates → 422
+        assert resp.status_code == 422
+
+    def test_candidate_missing_score_returns_422(self, api_client) -> None:
+        payload = _rerank_payload(n=1)
+        del payload["candidates"][0]["score"]
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        assert resp.status_code == 422
+
+
+class TestRerankEndpointVQA:
+    """Tests for VQA extract_answer behaviour."""
+
+    def test_extract_answer_false_vqa_answer_is_null(self, api_client) -> None:
+        payload = _rerank_payload(task_type="VQA", extract_answer=False)
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        assert resp.json()["data"]["vqa_answer"] is None
+
+    def test_extract_answer_true_non_vqa_task_has_null_answer(self, api_client) -> None:
+        """extract_answer=True only triggers for task_type='VQA'."""
+        payload = _rerank_payload(task_type="KIS", extract_answer=True)
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        assert resp.json()["data"]["vqa_answer"] is None
+
+    def test_extract_answer_true_vqa_task_model_unloaded_answer_is_null(
+        self, api_client
+    ) -> None:
+        """When VLM is not loaded, VQA answer is empty string → coerced to None."""
+        payload = _rerank_payload(task_type="VQA", extract_answer=True)
+        resp = api_client.post("/v1/rerank/early-fusion", json=payload)
+        # Unloaded VLM returns "", route coerces to None
+        assert resp.json()["data"]["vqa_answer"] is None
