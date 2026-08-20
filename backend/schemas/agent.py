@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from backend.schemas.query import QueryFilters
 from backend.schemas.submission import TaskType
@@ -79,6 +79,7 @@ class AgentPlan(BaseModel):
     clarification_question: str | None = Field(default=None, max_length=1000)
     decision_summary: str = Field(min_length=1, max_length=1000)
 
+    @computed_field
     @property
     def should_search(self) -> bool:
         """Indicate whether downstream orchestration may execute this plan."""
@@ -149,6 +150,7 @@ class AgentRequest(BaseModel):
 
     raw_query: str = Field(min_length=1, max_length=2000)
     session_id: str = Field(min_length=1, max_length=200)
+    task_type: TaskType | None = None
 
     @field_validator("raw_query", "session_id")
     @classmethod

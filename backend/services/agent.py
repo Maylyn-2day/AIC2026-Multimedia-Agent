@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
@@ -11,6 +12,7 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from backend.schemas.agent import AgentPlan, AgentRequest
+from backend.schemas.submission import TaskType
 
 
 class AgentProviderError(ValueError):
@@ -40,6 +42,7 @@ class AgentProvider(Protocol):
         raw_query: str,
         session_id: str,
         history: Sequence[ConversationTurn],
+        task_type: TaskType | None = None,
     ) -> AgentPlan | Mapping[str, object]:
         """Return structured plan data without raw chain-of-thought."""
         ...
@@ -102,6 +105,7 @@ class MockAgentProvider:
         raw_query: str,
         session_id: str,
         history: Sequence[ConversationTurn],
+        task_type: TaskType | None = None,
     ) -> AgentPlan | Mapping[str, object]:
         """Return the next fixture and record copied public call inputs."""
         self.calls.append(
@@ -109,6 +113,7 @@ class MockAgentProvider:
                 "raw_query": raw_query,
                 "session_id": session_id,
                 "history": deepcopy(list(history)),
+                "task_type": task_type,
             }
         )
         if self._next_response >= len(self._responses):
@@ -118,6 +123,60 @@ class MockAgentProvider:
         return response
 
 
+class LocalRuleBasedAgentProvider:
+    """Deterministic offline fallback using small, imperfect heuristics."""
+
+    _temporal_pattern = re.compile(
+        r"\b(?:trước khi|sau khi|rồi|tiếp theo|trước đó|sau đó|before|after|then|next)\b",
+        flags=re.IGNORECASE,
+    )
+    _question_pattern = re.compile(
+        r"\b(?:ai|gì|nào|bao nhiêu|màu gì|ở đâu|khi nào|who|what|which|how many|where|when)\b",
+        flags=re.IGNORECASE,
+    )
+
+    async def create_plan(
+        self,
+        *,
+        raw_query: str,
+        session_id: str,
+        history: Sequence[ConversationTurn],
+        task_type: TaskType | None = None,
+    ) -> AgentPlan:
+        """Classify a trimmed query without network or hidden reasoning."""
+        del session_id, history
+        query = raw_query.strip()
+        event_queries = [part.strip(" ,.;:") for part in self._temporal_pattern.split(query) if part.strip(" ,.;:")]
+        selected_task = task_type
+        if selected_task is None and self._temporal_pattern.search(query) and len(event_queries) >= 2:
+            selected_task = TaskType.TRAKE
+        elif selected_task is None and "?" in query and self._question_pattern.search(query):
+            selected_task = TaskType.VQA
+        elif selected_task is None:
+            selected_task = TaskType.KIS
+
+        if selected_task is TaskType.TRAKE:
+            return AgentPlan(
+                task_type=TaskType.TRAKE,
+                raw_query=query,
+                requires_temporal_alignment=True,
+                events=[{"order": index, "query": event} for index, event in enumerate(event_queries, start=1)],
+                decision_summary="Classified as TRAKE; search ordered events with temporal alignment.",
+            )
+        if selected_task is TaskType.VQA:
+            return AgentPlan(
+                task_type=TaskType.VQA,
+                raw_query=query,
+                requires_rerank=True,
+                decision_summary="Classified as VQA; retrieve candidates and verify the answer with reranking.",
+            )
+        return AgentPlan(
+            task_type=TaskType.KIS,
+            raw_query=query,
+            decision_summary="Classified as KIS; retrieve matching video frames.",
+        )
+
+
 class AgentRouter:
     """Validate input, delegate planning, and retain bounded session context."""
 
@@ -125,15 +184,16 @@ class AgentRouter:
         self._provider = provider
         self._memory = memory if memory is not None else ConversationMemory()
 
-    async def route(self, raw_query: str, session_id: str) -> AgentPlan:
+    async def route(self, raw_query: str, session_id: str, task_type: TaskType | None = None) -> AgentPlan:
         """Create a validated plan without executing search, fusion, or reranking."""
-        request = AgentRequest(raw_query=raw_query, session_id=session_id)
+        request = AgentRequest(raw_query=raw_query, session_id=session_id, task_type=task_type)
         history = self._memory.get_history(request.session_id)
         try:
             provider_output = await self._provider.create_plan(
                 raw_query=request.raw_query,
                 session_id=request.session_id,
                 history=history,
+                task_type=request.task_type,
             )
             if isinstance(provider_output, AgentPlan):
                 plan = provider_output.model_copy(deep=True)

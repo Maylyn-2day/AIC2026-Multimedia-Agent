@@ -1,90 +1,124 @@
-"""
-Backend API Client for Streamlit Frontend.
-
-Provides a clean interface for calling all 7 backend endpoints.
-In Phase 1, falls back to loading mock JSON files directly when
-the backend is unavailable.
-"""
+"""Resilient HTTP client for the Streamlit frontend."""
 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import requests
 
-# Default backend URL
-BACKEND_URL = "http://localhost:8000"
-
-# Mock data directory
+BACKEND_URL = os.getenv("AIC_BACKEND_URL", "http://localhost:8000").rstrip("/")
 MOCK_DIR = Path(__file__).resolve().parents[2] / "data" / "mock"
 
 
+def _error(message: str, *, status_code: int | None = None) -> dict[str, Any]:
+    return {"status": "error", "data": None, "message": message, "status_code": status_code}
+
+
+def _request_session_id(session_id: str | None) -> str:
+    return session_id if session_id else str(uuid4())
+
+
 def _load_mock(filename: str) -> dict[str, Any]:
-    """Load a mock JSON response file."""
     path = MOCK_DIR / filename
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
-    return {"status": "error", "data": None, "message": f"Mock file not found: {filename}"}
+    return _error(f"Mock file not found: {filename}")
 
 
-def _post(endpoint: str, payload: dict, timeout: float = 5.0) -> dict[str, Any]:
-    """POST to a backend endpoint with fallback to mock data."""
+def _decode_response(response: requests.Response) -> dict[str, Any]:
     try:
-        resp = requests.post(
+        body = response.json()
+    except requests.JSONDecodeError:
+        return _error(f"Backend returned non-JSON HTTP {response.status_code}", status_code=response.status_code)
+    if not isinstance(body, dict):
+        return _error(f"Backend returned invalid JSON HTTP {response.status_code}", status_code=response.status_code)
+    if response.status_code >= 400:
+        body.setdefault("status", "error")
+        body.setdefault("message", f"Backend request failed with HTTP {response.status_code}")
+        body["status_code"] = response.status_code
+    return body
+
+
+def _post(endpoint: str, payload: dict[str, Any], *, session_id: str, timeout: float = 5.0) -> dict[str, Any]:
+    try:
+        response = requests.post(
             f"{BACKEND_URL}{endpoint}",
             json=payload,
-            headers={"Content-Type": "application/json", "X-Session-ID": "streamlit-dev"},
+            headers={"Content-Type": "application/json", "X-Session-ID": session_id},
             timeout=timeout,
         )
-        return resp.json()
-    except (requests.ConnectionError, requests.Timeout):
-        return None
+    except (requests.ConnectionError, requests.Timeout) as error:
+        return _error(f"Backend unavailable: {type(error).__name__}")
+    return _decode_response(response)
 
 
 def _get(endpoint: str, timeout: float = 5.0) -> dict[str, Any]:
-    """GET from a backend endpoint with fallback to mock data."""
     try:
-        resp = requests.get(
-            f"{BACKEND_URL}{endpoint}",
-            headers={"X-Session-ID": "streamlit-dev"},
-            timeout=timeout,
-        )
-        return resp.json()
-    except (requests.ConnectionError, requests.Timeout):
-        return None
+        response = requests.get(f"{BACKEND_URL}{endpoint}", timeout=timeout)
+    except (requests.ConnectionError, requests.Timeout) as error:
+        return _error(f"Backend unavailable: {type(error).__name__}")
+    return _decode_response(response)
 
 
 def check_health() -> dict[str, Any]:
-    """Call GET /v1/health or return mock data."""
     result = _get("/v1/health")
-    return result if result else _load_mock("health_response.json")
+    return _load_mock("health_response.json") if result["status"] == "error" else result
 
 
-def hybrid_search(query: str, filters: dict | None = None, top_k: int = 100) -> dict[str, Any]:
-    """Call POST /v1/db/query or return mock data."""
-    payload = {"raw_query": query, "filters": filters or {}, "top_k": top_k}
-    result = _post("/v1/db/query", payload)
-    return result if result else _load_mock("query_response.json")
+def route_agent(raw_query: str, session_id: str, task_type: str | None = None) -> dict[str, Any]:
+    payload = {"raw_query": raw_query, "session_id": session_id, "task_type": task_type}
+    return _post("/v1/agent/route", payload, session_id=session_id)
 
 
-def rerank(query: str, candidates: list[dict]) -> dict[str, Any]:
-    """Call POST /v1/rerank/early-fusion or return mock data."""
-    payload = {"query": query, "candidates": candidates}
-    result = _post("/v1/rerank/early-fusion", payload)
-    return result if result else _load_mock("rerank_response.json")
+def clear_agent_session(session_id: str) -> dict[str, Any]:
+    try:
+        response = requests.delete(
+            f"{BACKEND_URL}/v1/agent/session/{session_id}", headers={"X-Session-ID": session_id}, timeout=5.0
+        )
+    except (requests.ConnectionError, requests.Timeout) as error:
+        return _error(f"Backend unavailable: {type(error).__name__}")
+    return _decode_response(response)
 
 
-def temporal_align(query: str) -> dict[str, Any]:
-    """Call POST /v1/temporal/align or return mock data."""
-    payload = {"raw_query": query, "auto_decompose": True}
-    result = _post("/v1/temporal/align", payload)
-    return result if result else _load_mock("temporal_response.json")
+def hybrid_search(
+    query: str, filters: dict[str, Any] | None = None, top_k: int = 100, session_id: str | None = None
+) -> dict[str, Any]:
+    result = _post(
+        "/v1/db/query",
+        {"raw_query": query, "filters": filters or {}, "top_k": top_k},
+        session_id=_request_session_id(session_id),
+    )
+    return _load_mock("query_response.json") if result["status"] == "error" else result
 
 
-def submit_results(task_type: str, results: list[dict], question_id: str = "") -> dict[str, Any]:
-    """Call POST /v1/submission/submit."""
-    payload = {"task_type": task_type, "question_id": question_id, "results": results}
-    result = _post("/v1/submission/submit", payload)
-    return result if result else {"status": "error", "message": "Backend unavailable"}
+def rerank(query: str, candidates: list[dict[str, Any]], session_id: str | None = None) -> dict[str, Any]:
+    return _post(
+        "/v1/rerank/early-fusion",
+        {"query": query, "candidates": candidates},
+        session_id=_request_session_id(session_id),
+    )
+
+
+def temporal_align(query: str, session_id: str | None = None) -> dict[str, Any]:
+    return _post(
+        "/v1/temporal/align",
+        {"raw_query": query, "auto_decompose": True},
+        session_id=_request_session_id(session_id),
+    )
+
+
+def submit_results(
+    task_type: str,
+    results: list[dict[str, Any]],
+    question_id: str = "",
+    session_id: str | None = None,
+) -> dict[str, Any]:
+    return _post(
+        "/v1/submission/submit",
+        {"task_type": task_type, "question_id": question_id, "results": results},
+        session_id=_request_session_id(session_id),
+    )
