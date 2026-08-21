@@ -23,6 +23,7 @@ from backend.core.exceptions import InvalidQueryError
 from backend.core.logging import setup_logger
 from backend.schemas.common import BaseResponse, KeyframeResult
 from backend.schemas.image import ImageQueryRequest
+from backend.services.embedding import get_clip_b32_encoder
 from backend.services.sketch_service import SketchService
 from frontend.utils.image_utils import base64_encode
 
@@ -37,7 +38,7 @@ router = APIRouter()
 _settings = get_settings()
 
 _sketch_service: SketchService = SketchService(
-    encoder=None,
+    encoder=get_clip_b32_encoder(),
     vector_dim=_settings.qdrant_vector_size,
     apply_edge_detection=False,   # no edge-detect for photo queries
     qdrant_client=None,

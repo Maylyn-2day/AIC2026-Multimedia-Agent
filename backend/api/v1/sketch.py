@@ -19,6 +19,7 @@ from backend.core.config import Settings, get_settings
 from backend.core.logging import setup_logger
 from backend.schemas.common import BaseResponse
 from backend.schemas.image import SketchQueryRequest
+from backend.services.embedding import get_clip_b32_encoder
 from backend.services.sketch_service import SketchService
 
 logger = setup_logger("sketch_route")
@@ -29,7 +30,7 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 _sketch_service: SketchService = SketchService(
-    encoder=None,         # M4's SigLIP 2 encoder injected once it ships
+    encoder=get_clip_b32_encoder(),
     vector_dim=get_settings().qdrant_vector_size,
     apply_edge_detection=True,
     qdrant_client=None,   # Phase 2: inject real Qdrant client

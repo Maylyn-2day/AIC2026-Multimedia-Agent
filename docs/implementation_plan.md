@@ -27,7 +27,7 @@
 | **STAR/TRAKE** | Multi-stage temporal alignment: Q_past, Q_current, Q_future with index ordering constraint |
 | **Scoring** | `Final Score = (1/5) Σ R@k` for k ∈ {1, 5, 20, 50, 100}; mandatory 100-result submission |
 | **Vector DB** | **Qdrant** (standardized, HNSW index), ANN query <10ms |
-| **Visual Encoder** | **`google/siglip2-so400m-patch14-384`** (primary) with OpenCLIP ViT-L/14 fallback |
+| **Visual Encoder** | **OpenAI CLIP `ViT-B-32`** (512-d organizer baseline) + experimental SigLIP2 offline |
 | **Sparse DB** | Elasticsearch for OCR, ASR, Objects JSON, YouTube Metadata |
 | **UI Framework** | Streamlit **unified single-page dashboard** (Chatbot sidebar, SOM Grid center, Timeline/Sketch modals) |
 | **Sprint Duration** | **10 days** strict schedule (Phase 1: D1–2, Phase 2: D3–5, Phase 3: D6–8, Phase 4: D9–10) |
@@ -273,7 +273,7 @@ Given the scope of this request, I will generate the following files:
 | Step | Task | Owner | Deliverable |
 |:---:|:---|:---:|:---|
 | 2.1 | Build `scripts/ingest_keyframes.py`: extract semantic keyframes (AutoShot + L1 filter) | M4 | Deduplicated keyframe set |
-| 2.2 | Run `google/siglip2-so400m-patch14-384` + OpenCLIP ViT-L/14 to generate `.npy` vectors | M4 | `data/processed/*.npy` |
+| 2.2 | Ingest organizer CLIP ViT-B/32 vectors; benchmark SigLIP2 separately | M4 | `data/processed/*.npy` |
 | 2.3 | Implement `backend/db/qdrant_client.py`: create collection, upsert vectors | M5 | Vectors searchable in Qdrant |
 | 2.4 | Build `scripts/ingest_metadata.py`: load Objects JSON + YouTube metadata → ES | M5 | ES indices populated |
 | 2.5 | Run `scripts/extract_ocr.py` (Qwen2.5-VL) + `scripts/extract_asr.py` (Whisper) | M4 | OCR/ASR text in ES |
@@ -341,7 +341,7 @@ Given the scope of this request, I will generate the following files:
 > **LLM Provider → Gemini 2.0 Flash (Primary):** `backend/services/agent.py` implements a provider adapter pattern with Gemini 2.0 Flash as the default. OpenAI o1-mini is supported as a config-driven fallback via `configs/settings.yaml` → `agent.llm_provider: "gemini" | "openai"`.
 
 > [!NOTE]
-> **SigLIP 2 Variant → `google/siglip2-so400m-patch14-384` (Primary):** This is the production encoder in `backend/services/embedding.py`. OpenCLIP ViT-L/14 serves as the global context fallback and is always loaded alongside for dual-encoder late fusion.
+> **Competition baseline → OpenAI CLIP `ViT-B-32`:** Online image/text queries use normalized 512-dimensional vectors matching the organizer features. OpenCLIP `ViT-gopt-16-SigLIP2-384` remains an isolated 1536-dimensional offline experiment and must use a separate Qdrant collection if enabled later.
 
 ---
 

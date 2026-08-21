@@ -47,7 +47,7 @@ logger = setup_logger("sketch_service")
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_VECTOR_DIM: int = 768  # matches SigLIP 2 / Qdrant collection size
+_DEFAULT_VECTOR_DIM: int = 512  # organizer CLIP ViT-B/32 output size
 _MOCK_RESULT_COUNT: int = 10    # number of synthetic results in fallback mode
 
 
@@ -163,8 +163,8 @@ class SketchService:
 
     .. code-block:: python
 
-        from m4.encoders import siglip2_encode
-        svc = SketchService(encoder=siglip2_encode, vector_dim=768)
+        from backend.services.embedding import get_clip_b32_encoder
+        svc = SketchService(encoder=get_clip_b32_encoder(), vector_dim=512)
 
     Without an encoder (default), a deterministic unit vector is returned,
     keeping the retrieval pipeline functional with predictable ranking.

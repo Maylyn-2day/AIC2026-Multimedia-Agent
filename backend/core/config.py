@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     qdrant_port: int = 6333
     qdrant_grpc_port: int = 6334
     qdrant_collection_name: str = "aic2026_keyframes"
-    qdrant_vector_size: int = 768
+    qdrant_vector_size: int = 512
 
     # ── Elasticsearch (Sparse Search) ────────────────────────
     es_host: str = "localhost"
@@ -58,9 +58,13 @@ class Settings(BaseSettings):
     es_index_metadata: str = "aic2026_metadata"
 
     # ── Model Paths ──────────────────────────────────────────
-    siglip2_model_id: str = "google/siglip2-so400m-patch14-384"
-    openclip_model_id: str = "ViT-L-14"
+    siglip2_model_id: str = "ViT-gopt-16-SigLIP2-384"
+    siglip2_pretrained: str = "webli"
+    siglip2_weights_path: str = ""
+    siglip2_device: str = ""
+    openclip_model_id: str = "ViT-B-32-quickgelu"
     openclip_pretrained: str = "openai"
+    openclip_device: str = ""
     qwen_vl_model_id: str = "Qwen/Qwen2.5-VL-7B-Instruct"
     grounding_dino_model_id: str = "IDEA-Research/grounding-dino-base"
 
