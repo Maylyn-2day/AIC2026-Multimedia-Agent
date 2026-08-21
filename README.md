@@ -13,7 +13,8 @@ Kho mã dùng chung cho hệ thống truy vấn video AIC 2026. Phần hiện c�
 | Chuẩn hóa Faster R-CNN Objects thành JSONL | Hoàn thành trên 3 video mẫu |
 | SigLIP2 global embedding | Code hoàn thành; chưa sinh dữ liệu vì thiếu weights/GPU |
 | SigLIP2 dense feature | Code hoàn thành; chỉ chạy cho ứng viên rerank |
-| OCR và ASR | Chưa triển khai |
+| OCR | Notebook PP-OCRv5 + VietOCR hoàn thành; chưa sinh dữ liệu |
+| ASR | Chưa triển khai |
 
 Kết quả đã kiểm tra:
 
@@ -141,3 +142,7 @@ python -m backend.offline_indexing.cli objects \
 ```
 
 Mỗi dòng JSONL gồm `video_id`, `keyframe_id`, `frame_id`, `timestamp`, danh sách nhãn và detection `{entity, class_name, class_id, score, box}`. Đây là Objects của keyframe BTC, không phải keyframe tự sinh.
+
+## 6. OCR trên Kaggle
+
+Mở `notebooks/kaggle_ocr_ppocrv5_vietocr.ipynb`, Add Input hai dataset `ducpham1905/keyframes` và `depppham1905/map-keyframes`, rồi bật GPU và Internet. Lần Run all đầu cài dependency và tự restart kernel; sau khi kernel sẵn sàng, Run all lần hai để OCR. Notebook dùng PP-OCRv5 mobile qua ONNX Runtime GPU và VietOCR Seq2Seq qua PyTorch, sau đó xuất `ocr/records/<video_id>.jsonl`, `ocr/manifest.json` và `ocr-results.zip`. Gắn thư mục output của lượt trước làm Kaggle Dataset để tự bỏ qua các video đã hoàn thành.

@@ -78,6 +78,7 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 notebooks/*.ipynb
+!notebooks/kaggle_ocr_ppocrv5_vietocr.ipynb
 
 # IPython
 profile_default/
