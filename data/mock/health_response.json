@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "data": {
+    "qdrant": "connected",
+    "elasticsearch": "connected",
+    "models": {
+      "siglip2": "loaded",
+      "openclip": "loaded",
+      "qwen_vl": "unloaded",
+      "grounding_dino": "unloaded"
+    },
+    "vram_usage_gb": 2.1,
+    "vram_budget_gb": 8.0
+  },
+  "message": "All systems operational",
+  "execution_time": "0.01s",
+  "agent_reasoning": null
+}
