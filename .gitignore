@@ -214,5 +214,21 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
+# Standalone competition data, local configuration, models, and outputs
+data/external/
+competition-data/
+models/cache/
+.model-cache/
+output/
+outputs/
+results/
+reviews/
+submission/
+submissions/
+submission*.zip
+*_submission.zip
+queries/*variants*.json
+queries/*answers*.json
+
 # Streamlit
 .streamlit/secrets.toml

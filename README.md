@@ -142,6 +142,8 @@ All endpoints are versioned under `/v1/` and require `Content-Type: application/
 
 > 📖 Full API specification with request/response schemas: [`docs/api_contract.md`](docs/api_contract.md)
 
+- [Standalone Submission Pipeline v1](docs/submission_pipeline_v1.md)
+
 ---
 
 ## 🛠️ Tech Stack
